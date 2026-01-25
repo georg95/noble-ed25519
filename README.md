@@ -153,6 +153,9 @@ RFC8032 / FIPS 186-5 and provides non-repudiation with SBS (Strongly Binding Sig
 > [!NOTE]
 > Most other libraries don't have SUF-CMA & SBS - less optimal choice for their security.
 
+> [!NOTE]
+> Any message with pubkey from `ED25519_TORSION_SUBGROUP` would be valid in sigs under ZIP215.
+
 ### utils
 
 A bunch of useful **utilities** are also exposed:

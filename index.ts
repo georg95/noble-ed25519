@@ -499,7 +499,11 @@ const sign = (message: Bytes, secretKey: Bytes): Bytes => {
   const rBytes = sha512s(e.prefix, m); // r = SHA512(dom2(F, C) || prefix || PH(M))
   return hashFinishS(_sign(e, rBytes, m)); // gen R, k, S, then 64-byte signature
 };
-/** Verification options. zip215: true (default) follows ZIP215 spec. false would follow RFC8032. */
+/**
+ * Verification options. zip215: true (default) follows ZIP215 spec. false would follow RFC8032.
+ *
+ * Any message with pubkey from `ED25519_TORSION_SUBGROUP` would be valid in sigs under ZIP215.
+ */
 export type EdDSAVerifyOpts = { zip215?: boolean };
 const defaultVerifyOpts: EdDSAVerifyOpts = { zip215: true };
 const _verify = (
