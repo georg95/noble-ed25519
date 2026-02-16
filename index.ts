@@ -142,7 +142,7 @@ const M = (a: bigint, b: bigint = P): bigint => {
 const P_MASK = (1n << 255n) - 1n;
 const MAX_MFAST = P * P;
 const M_fast = (num: bigint) => {
-  if (num < 0n || num > MAX_MFAST) { err('don\'t use M_fast for numbers < 0 or > P * P') }
+  if (num < 0n || num >= MAX_MFAST) { err('don\'t use M_fast for numbers < 0 or >= P * P') }
   let r = (num >> 255n) * 19n + (num & P_MASK);
   r = (r >> 255n) * 19n + (r & P_MASK);
   return r >= P ? r - P : r;
