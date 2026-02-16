@@ -122,6 +122,16 @@ const M = (a, b = P) => {
     const r = a % b;
     return r >= 0n ? r : b + r;
 };
+const P_MASK = (1n << 255n) - 1n;
+const MAX_MFAST = P * P;
+const M_fast = (num) => {
+    if (num < 0n || num > MAX_MFAST) {
+        err('don\'t use M_fast for numbers < 0 or > P * P');
+    }
+    let r = (num >> 255n) * 19n + (num & P_MASK);
+    r = (r >> 255n) * 19n + (r & P_MASK);
+    return r >= P ? r - P : r;
+};
 const modN = (a) => M(a, N);
 /** Modular inversion using euclidean GCD (non-CT). No negative exponent for now. */
 // prettier-ignore
@@ -236,10 +246,10 @@ class Point {
     equals(other) {
         const { X: X1, Y: Y1, Z: Z1 } = this;
         const { X: X2, Y: Y2, Z: Z2 } = apoint(other); // checks class equality
-        const X1Z2 = M(X1 * Z2);
-        const X2Z1 = M(X2 * Z1);
-        const Y1Z2 = M(Y1 * Z2);
-        const Y2Z1 = M(Y2 * Z1);
+        const X1Z2 = M_fast(X1 * Z2);
+        const X2Z1 = M_fast(X2 * Z1);
+        const Y1Z2 = M_fast(Y1 * Z2);
+        const Y2Z1 = M_fast(Y2 * Z1);
         return X1Z2 === X2Z1 && Y1Z2 === Y2Z1;
     }
     is0() {
@@ -254,19 +264,19 @@ class Point {
         const { X: X1, Y: Y1, Z: Z1 } = this;
         const a = _a;
         // https://hyperelliptic.org/EFD/g1p/auto-twisted-extended.html#doubling-dbl-2008-hwcd
-        const A = M(X1 * X1);
-        const B = M(Y1 * Y1);
-        const C = M(2n * M(Z1 * Z1));
+        const A = M_fast(X1 * X1);
+        const B = M_fast(Y1 * Y1);
+        const C = M(2n * M_fast(Z1 * Z1));
         const D = M(a * A);
-        const x1y1 = X1 + Y1;
-        const E = M(M(x1y1 * x1y1) - A - B);
-        const G = D + B;
-        const F = G - C;
-        const H = D - B;
-        const X3 = M(E * F);
-        const Y3 = M(G * H);
-        const T3 = M(E * H);
-        const Z3 = M(F * G);
+        const x1y1 = M(X1 + Y1);
+        const E = M(M_fast(x1y1 * x1y1) - A - B);
+        const G = M(D + B);
+        const F = M(G - C);
+        const H = M(D - B);
+        const X3 = M_fast(E * F);
+        const Y3 = M_fast(G * H);
+        const T3 = M_fast(E * H);
+        const Z3 = M_fast(F * G);
         return new Point(X3, Y3, Z3, T3);
     }
     /** Point addition. Complete formula. Cost: `8M + 1*k + 8add + 1*2`. */
@@ -276,18 +286,18 @@ class Point {
         const a = _a;
         const d = _d;
         // https://hyperelliptic.org/EFD/g1p/auto-twisted-extended-1.html#addition-add-2008-hwcd-3
-        const A = M(X1 * X2);
-        const B = M(Y1 * Y2);
-        const C = M(T1 * d * T2);
-        const D = M(Z1 * Z2);
-        const E = M((X1 + Y1) * (X2 + Y2) - A - B);
+        const A = M_fast(X1 * X2);
+        const B = M_fast(Y1 * Y2);
+        const C = M_fast(M_fast(T1 * d) * T2);
+        const D = M_fast(Z1 * Z2);
+        const E = M(M_fast(M(X1 + Y1) * M(X2 + Y2)) - A - B);
         const F = M(D - C);
         const G = M(D + C);
         const H = M(B - a * A);
-        const X3 = M(E * F);
-        const Y3 = M(G * H);
-        const T3 = M(E * H);
-        const Z3 = M(F * G);
+        const X3 = M_fast(E * F);
+        const Y3 = M_fast(G * H);
+        const T3 = M_fast(E * H);
+        const Z3 = M_fast(F * G);
         return new Point(X3, Y3, Z3, T3);
     }
     subtract(other) {
@@ -332,11 +342,11 @@ class Point {
             return { x: 0n, y: 1n };
         const iz = invert(Z, P);
         // (Z * Z^-1) must be 1, otherwise bad math
-        if (M(Z * iz) !== 1n)
+        if (M_fast(Z * iz) !== 1n)
             err('invalid inverse');
         // x = X*Z^-1; y = Y*Z^-1
-        const x = M(X * iz);
-        const y = M(Y * iz);
+        const x = M_fast(X * iz);
+        const y = M_fast(Y * iz);
         return { x, y };
     }
     toBytes() {
@@ -376,38 +386,37 @@ const pow2 = (x, power) => {
     // pow2(x, 4) == x^(2^4)
     let r = x;
     while (power-- > 0n) {
-        r *= r;
-        r %= P;
+        r = M_fast(r * r);
     }
     return r;
 };
 // prettier-ignore
 const pow_2_252_3 = (x) => {
-    const x2 = (x * x) % P; // x^2,       bits 1
-    const b2 = (x2 * x) % P; // x^3,       bits 11
-    const b4 = (pow2(b2, 2n) * b2) % P; // x^(2^4-1), bits 1111
-    const b5 = (pow2(b4, 1n) * x) % P; // x^(2^5-1), bits 11111
-    const b10 = (pow2(b5, 5n) * b5) % P; // x^(2^10)
-    const b20 = (pow2(b10, 10n) * b10) % P; // x^(2^20)
-    const b40 = (pow2(b20, 20n) * b20) % P; // x^(2^40)
-    const b80 = (pow2(b40, 40n) * b40) % P; // x^(2^80)
-    const b160 = (pow2(b80, 80n) * b80) % P; // x^(2^160)
-    const b240 = (pow2(b160, 80n) * b80) % P; // x^(2^240)
-    const b250 = (pow2(b240, 10n) * b10) % P; // x^(2^250)
-    const pow_p_5_8 = (pow2(b250, 2n) * x) % P; // < To pow to (p+3)/8, multiply it by x.
+    const x2 = M_fast(x * x); // x^2,       bits 1
+    const b2 = M_fast(x2 * x); // x^3,       bits 11
+    const b4 = M_fast(pow2(b2, 2n) * b2); // x^(2^4-1), bits 1111
+    const b5 = M_fast(pow2(b4, 1n) * x); // x^(2^5-1), bits 11111
+    const b10 = M_fast(pow2(b5, 5n) * b5); // x^(2^10)
+    const b20 = M_fast(pow2(b10, 10n) * b10); // x^(2^20)
+    const b40 = M_fast(pow2(b20, 20n) * b20); // x^(2^40)
+    const b80 = M_fast(pow2(b40, 40n) * b40); // x^(2^80)
+    const b160 = M_fast(pow2(b80, 80n) * b80); // x^(2^160)
+    const b240 = M_fast(pow2(b160, 80n) * b80); // x^(2^240)
+    const b250 = M_fast(pow2(b240, 10n) * b10); // x^(2^250)
+    const pow_p_5_8 = M_fast(pow2(b250, 2n) * x); // < To pow to (p+3)/8, multiply it by x.
     return { pow_p_5_8, b2 };
 };
 const RM1 = 0x2b8324804fc1df0b2b4d00993dfbd7a72f431806ad2fe478c4ee1b274a0ea0b0n; // √-1
 // for sqrt comp
 // prettier-ignore
 const uvRatio = (u, v) => {
-    const v3 = M(v * v * v); // v³
-    const v7 = M(v3 * v3 * v); // v⁷
-    const pow = pow_2_252_3(u * v7).pow_p_5_8; // (uv⁷)^(p-5)/8
-    let x = M(u * v3 * pow); // (uv³)(uv⁷)^(p-5)/8
-    const vx2 = M(v * x * x); // vx²
+    const v3 = M_fast(v * M_fast(v * v)); // v³
+    const v7 = M_fast(M_fast(v3 * v3) * v); // v⁷
+    const pow = pow_2_252_3(M_fast(u * v7)).pow_p_5_8; // (uv⁷)^(p-5)/8
+    let x = M_fast(u * M_fast(v3 * pow)); // (uv³)(uv⁷)^(p-5)/8
+    const vx2 = M_fast(v * M_fast(x * x)); // vx²
     const root1 = x; // First root candidate
-    const root2 = M(x * RM1); // Second root candidate; RM1 is √-1
+    const root2 = M_fast(x * RM1); // Second root candidate; RM1 is √-1
     const useRoot1 = vx2 === u; // If vx² = u (mod p), x is a square root
     const useRoot2 = vx2 === M(-u); // If vx² = -u, set x <-- x * 2^((p-1)/4)
     const noRoot = vx2 === M(-u * RM1); // There is no valid root, vx² = -u√-1
