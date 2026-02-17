@@ -140,12 +140,11 @@ const M = (a: bigint, b: bigint = P): bigint => {
   return r >= 0n ? r : b + r;
 };
 const P_MASK = (1n << 255n) - 1n;
-const MAX_MFAST = P * P;
 const M_fast = (num: bigint) => {
-  if (num < 0n || num >= MAX_MFAST) { err('don\'t use M_fast for numbers < 0 or >= P * P') }
+  if (num < 0n) err('negative coordinate');
   let r = (num >> 255n) * 19n + (num & P_MASK);
   r = (r >> 255n) * 19n + (r & P_MASK);
-  return r >= P ? r - P : r;
+  return r % P
 };
 const modN = (a: bigint) => M(a, N);
 /** Modular inversion using euclidean GCD (non-CT). No negative exponent for now. */
@@ -197,7 +196,7 @@ class Point {
     return ed25519_CURVE;
   }
   static fromAffine(p: AffinePoint): Point {
-    return new Point(p.x, p.y, 1n, M(p.x * p.y));
+    return new Point(p.x, p.y, 1n, M_fast(p.x * p.y));
   }
   /** RFC8032 5.1.3: Uint8Array to Point. */
   static fromBytes(hex: Bytes, zip215 = false): Point {
@@ -213,16 +212,16 @@ class Point {
     const max = zip215 ? B256 : P;
     assertRange(y, 0n, max);
 
-    const y2 = M(y * y); // y²
+    const y2 = M_fast(y * y); // y²
     const u = M(y2 - 1n); // u=y²-1
-    const v = M(d * y2 + 1n); // v=dy²+1
+    const v = M_fast(d * y2 + 1n); // v=dy²+1
     let { isValid, value: x } = uvRatio(u, v); // (uv³)(uv⁷)^(p-5)/8; square root
     if (!isValid) err('bad point: y not sqrt'); // not square root: bad point
     const isXOdd = (x & 1n) === 1n; // adjust sign of x coordinate
     const isLastByteOdd = (lastByte & 0x80) !== 0; // x_0, last bit
     if (!zip215 && x === 0n && isLastByteOdd) err('bad point: x==0, isLastByteOdd'); // x=0, x_0=1
     if (isLastByteOdd !== isXOdd) x = M(-x);
-    return new Point(x, y, 1n, M(x * y)); // Z=1, T=xy
+    return new Point(x, y, 1n, M_fast(x * y)); // Z=1, T=xy
   }
   static fromHex(hex: string, zip215?: boolean): Point {
     return Point.fromBytes(hexToBytes(hex), zip215);
@@ -242,17 +241,17 @@ class Point {
     // Equation in affine coordinates: ax² + y² = 1 + dx²y²
     // Equation in projective coordinates (X/Z, Y/Z, Z):  (aX² + Y²)Z² = Z⁴ + dX²Y²
     const { X, Y, Z, T } = p;
-    const X2 = M(X * X); // X²
-    const Y2 = M(Y * Y); // Y²
-    const Z2 = M(Z * Z); // Z²
-    const Z4 = M(Z2 * Z2); // Z⁴
-    const aX2 = M(X2 * a); // aX²
-    const left = M(Z2 * M(aX2 + Y2)); // (aX² + Y²)Z²
-    const right = M(Z4 + M(d * M(X2 * Y2))); // Z⁴ + dX²Y²
+    const X2 = M_fast(X * X); // X²
+    const Y2 = M_fast(Y * Y); // Y²
+    const Z2 = M_fast(Z * Z); // Z²
+    const Z4 = M_fast(Z2 * Z2); // Z⁴
+    const aX2 = M_fast(X2 * a); // aX²
+    const left = M_fast(Z2 * (aX2 + Y2)); // (aX² + Y²)Z²
+    const right = M(Z4 + M_fast(d * M_fast(X2 * Y2))); // Z⁴ + dX²Y²
     if (left !== right) return err('bad point: equation left != right (1)');
     // In Extended coordinates we also have T, which is x*y=T/Z: check X*Y == Z*T
-    const XY = M(X * Y);
-    const ZT = M(Z * T);
+    const XY = M_fast(X * Y);
+    const ZT = M_fast(Z * T);
     if (XY !== ZT) return err('bad point: equation left != right (2)');
     return this;
   }
@@ -280,8 +279,8 @@ class Point {
     // https://hyperelliptic.org/EFD/g1p/auto-twisted-extended.html#doubling-dbl-2008-hwcd
     const A = M_fast(X1 * X1);
     const B = M_fast(Y1 * Y1);
-    const C = M(2n * M_fast(Z1 * Z1));
-    const D = M(a * A);
+    const C = M_fast(2n * Z1 * Z1);
+    const D = M_fast(a * A);
     const x1y1 = M(X1 + Y1);
     const E = M(M_fast(x1y1 * x1y1) - A - B);
     const G = M(D + B);
@@ -307,7 +306,7 @@ class Point {
     const E = M(M_fast(M(X1 + Y1) * M(X2 + Y2)) - A - B);
     const F = M(D - C);
     const G = M(D + C);
-    const H = M(B - a * A);
+    const H = M(B - M_fast(a * A));
     const X3 = M_fast(E * F);
     const Y3 = M_fast(G * H);
     const T3 = M_fast(E * H);
